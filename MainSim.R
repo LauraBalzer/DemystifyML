@@ -6,7 +6,7 @@
 
 rm(list=ls())
 
-gen.data <- function(n, do.pop=F,  do.misp=F){
+gen.data <- function(n, do.pop=F,  do.misp=F, my.transform=F){
 
   C1 <- rnorm(n,0,1)
   C2 <- rnorm(n,0,1)
@@ -27,13 +27,26 @@ gen.data <- function(n, do.pop=F,  do.misp=F){
   if(do.pop){
     # return the pscore & counterfactual outcomes
     yay <- data.frame(cbind(pscore, Y1,Y0))
-  } else{
-    if(do.misp){
-      # transform the confounders
+  } else {
+    
+    if(do.misp & my.transform){
+      # BALZER & WESTLING transformation of the confounders 
       C1 <- exp(C1/2)
       C2 <- C2/(1+exp(C1)) + 10
       C3 <- (C1*C3/25 + 0.6)^3
       C4 <- (C2 + C4 + 20)^2
+      
+    } else if (do.misp & !my.transform){
+      # NAIMI et al. transformation of the confounders
+      Z1 <- C1
+      Z2 <- C2
+      Z3 <- C3
+      Z4 <- C4
+      
+      C1 <- exp(Z1/2)
+      C2 <- Z2/(1+exp(Z1)) + 10
+      C3 <- (Z1*Z3/25 + 0.6)^3
+      C4 <- (Z2 + Z4 + 20)^2
     }
     # return observed data
     yay <- data.frame(cbind(C1,C2,C3,C4,X,Y))
@@ -63,8 +76,10 @@ set.seed(1)
 n <- 5000
 # number of iterations
 R <- 500
-# indicator for complex setting
-do.misp <- T 
+# indicator for "complex" setting
+do.misp <- T
+# indicator of which transformation in the "complex" setting
+my.transform <- T
 # use Super Learner for estimation 
 do.SL <- T
 # bound the pscore
@@ -96,12 +111,17 @@ if(do.gbounds){
   g.file <- ''
 }
 
+file.name <- paste('Complex', do.misp,'MyTransform', my.transform,
+                   'V', V, SL.file, g.file,
+                   'n',n, 'R', R, '.', Sys.Date(), '.Rdata', sep='')
+print(file.name)
+
 
 these <- c('estimate', 'std.dev', 'CI1', 'CI2')
 OUT <- data.frame(matrix(NA, nrow=R, ncol=length(these)))
 colnames(OUT) <- these
 for(r in 1:R){
-  O <- gen.data(n, do.misp=do.misp)
+  O <- gen.data(n, do.misp=do.misp, my.transform=my.transform)
   est  <- ltmle(data=O, Anodes='X', Ynodes='Y', abar=list(1,0), 
                 SL.library=SL.library, estimate.time=F,
                 SL.cvControl=list(V=V),
@@ -114,21 +134,16 @@ for(r in 1:R){
 
 get.summary(OUT, ATE)
 
-file.name <- paste('Complex',do.misp,  
-                   'V', V, SL.file, g.file,
-                   'n',n, 'R', R, '.', Sys.Date(), '.Rdata', sep='')
-
 save(ATE,n,R,do.misp, SL.library, OUT, file=file.name)
 
-
-###############################################################
-# # Demonstrating ills of overfitting
-# # See discussion in Supplementary Materials
-# # NOT recommended in practice 
+# 
+# ###############################################################
+# # # Demonstrating ills of overfitting
+# # # See discussion in Supplementary Materials
+# # # NOT recommended in practice 
 # O <- gen.data(n=200, do.misp=F)
 # # estimate E(Y|X,W) with observed outcome
 # init <- O$Y
 # pscore <- predict(glm(X~C1+C2+C3+C4, data=O, family='binomial'), type='response')
 # H <- O$X/pscore
 # glm(O$Y ~ -1 +offset(init) + H)
-
